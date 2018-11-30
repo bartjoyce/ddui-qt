@@ -13,7 +13,13 @@
 
 namespace ddui {
 
-bool app_init(int window_width, int window_height, const char* title, std::function<void()> update_proc);
+bool app_init(
+    int argc, const char** argv,
+    int window_width, int window_height,
+    const char* title,
+    std::function<void()> update_proc
+);
+
 void app_run();
 
 }

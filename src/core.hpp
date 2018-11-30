@@ -237,7 +237,7 @@ void input_mouse_button(int button, int action, int mods);
 void input_scroll(float offset_x, float offset_y);
 
 // Frame management
-void update(float width, float height, float pixel_ratio, std::function<void()> update_proc);
+void update(void* painter, float width, float height, std::function<void()> update_proc);
 void repaint();
 void set_immediate(std::function<void()> callback);
 

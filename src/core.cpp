@@ -7,13 +7,12 @@
 //
 
 #include "core.hpp"
-#include "init.hpp"
 #include "timer.hpp"
 #include "animation.hpp"
 #include <vector>
 #include <chrono>
 #include <mutex>
-#include <GL3/gl3w.h>
+#include <QtGui>
 
 namespace ddui {
 
@@ -35,7 +34,8 @@ struct FocusState {
 };
 
 // Globals
-static NVGcontext* vg;
+static QPainter* painter;
+static QPainterPath painter_path;
 static FocusState focus_state;
 static std::vector<KeyState> key_state_queue;
 static std::mutex repaint_mutex;
@@ -50,11 +50,11 @@ static std::vector<Viewport> saved_views;
 
 // Setup
 bool init() {
-    vg = nvgCreate();
-    if (vg == NULL) {
-        printf("Could not init nanovg.\n");
-        return false;
-    }
+    // vg = nvgCreate();
+    // if (vg == NULL) {
+    //     printf("Could not init nanovg.\n");
+    //     return false;
+    // }
 
     focus_state.focus_old = NULL;
     focus_state.focus_new = NULL;
@@ -93,7 +93,7 @@ void set_set_cursor_proc(std::function<void(Cursor)> proc) {
 
 // Teardown
 void terminate() {
-    nvgDelete(vg);
+    // nvgDelete(vg);
 }
 
 // User input
@@ -179,17 +179,13 @@ void input_scroll(float offset_x, float offset_y) {
 }
 
 // Frame management
-static void update_pre(float width, float height, float pixel_ratio);
+static void update_pre(float width, float height);
 static void update_post();
 
-void update(float width, float height, float pixel_ratio, std::function<void()> update_proc) {
+void update(void* _painter, float width, float height, std::function<void()> update_proc) {
 
-    // Setup GL frame
-    auto frame_buffer_width  = (int)(width * pixel_ratio);
-    auto frame_buffer_height = (int)(height * pixel_ratio);
-    glViewport(0, 0, frame_buffer_width, frame_buffer_height);
-    glClearColor(0.949f, 0.949f, 0.949f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    // Setup painter
+    painter = (QPainter*)_painter;
 
     repaint_mutex.lock();
     is_painting = true;
@@ -197,8 +193,9 @@ void update(float width, float height, float pixel_ratio, std::function<void()> 
     repaint_mutex.unlock();
 
     while (true) {
-        nvgBeginFrame(vg, width, height, pixel_ratio);
-        update_pre(width, height, pixel_ratio);
+        painter->fillRect(0, 0, width, height, QColor::fromRgbF(0.949f, 0.949f, 0.949f, 1.0f));
+
+        update_pre(width, height);
         update_proc();
         update_post();
 
@@ -210,22 +207,23 @@ void update(float width, float height, float pixel_ratio, std::function<void()> 
         }
         should_repaint = false;
         repaint_mutex.unlock();
-
-        nvgCancelFrame(vg);
     }
-
-    nvgEndFrame(vg);
 
 }
 
-void update_pre(float width, float height, float pixel_ratio) {
+void update_pre(float width, float height) {
 
     // Process all set_immediate callbacks
-    set_immediate_mutex.lock();
-    auto callbacks = std::move(set_immediate_callbacks);
-    set_immediate_mutex.unlock();
-    for (auto& callback : callbacks) {
-        callback();
+    while (true) {
+        set_immediate_mutex.lock();
+        auto callbacks = std::move(set_immediate_callbacks);
+        set_immediate_mutex.unlock();
+        if (callbacks.empty()) {
+            break;
+        }
+        for (auto& callback : callbacks) {
+            callback();
+        }
     }
 
     // Let the animation system know that a new frame is being generated
@@ -395,18 +393,18 @@ Color color_interpolate(Color a, Color b, float ratio) {
 
 // State Handling
 void save() {
-    nvgSave(vg);
+    painter->save();
     saved_views.push_back(view);
 }
 
 void restore() {
-    nvgRestore(vg);
+    painter->restore();
     view = saved_views.back();
     saved_views.pop_back();
 }
 
 void reset() {
-    nvgReset(vg);
+    painter->resetTransform();
     view = saved_views.front();
     saved_views.clear();
     saved_views.push_back(view);
@@ -414,99 +412,104 @@ void reset() {
 
 void sub_view(float x, float y, float width, float height) {
     save();
-    nvgTranslate(vg, x, y);
+    painter->translate(x, y);
     view.width = width;
     view.height = height;
 }
 
 // Render styles
-
 void shape_anti_alias(bool enabled) {
-    nvgShapeAntiAlias(vg, enabled);
+    // nvgShapeAntiAlias(vg, enabled);
 }
 
 void stroke_color(Color color) {
-    nvgStrokeColor(vg, *(NVGcolor*)&color);
+    auto pen = painter->pen();
+    pen.setColor(QColor::fromRgbF(color.r, color.g, color.b, color.a));
+    painter->setPen(pen);
 }
 
 void stroke_paint(Paint paint) {
-    nvgStrokePaint(vg, *(NVGpaint*)&paint);
+    // nvgStrokePaint(vg, *(NVGpaint*)&paint);
 }
 
 void fill_color(Color color) {
-    nvgFillColor(vg, *(NVGcolor*)&color);
+    auto brush = painter->brush();
+    brush.setColor(QColor::fromRgbF(color.r, color.g, color.b, color.a));
+    painter->setBrush(brush);
 }
 
 void fill_paint(Paint paint) {
-    nvgFillPaint(vg, *(NVGpaint*)&paint);
+    // nvgFillPaint(vg, *(NVGpaint*)&paint);
 }
 
 void miter_limit(float limit) {
-    nvgMiterLimit(vg, limit);
+    // nvgMiterLimit(vg, limit);
 }
 
 void stroke_width(float size) {
-    nvgStrokeWidth(vg, size);
+    auto pen = painter->pen();
+    pen.setWidthF(size);
+    painter->setPen(pen);
 }
 
 void line_cap(int cap) {
-    nvgLineCap(vg, cap);
+    // nvgLineCap(vg, cap);
 }
 
 void line_join(int join) {
-    nvgLineJoin(vg, join);
+    // nvgLineJoin(vg, join);
 }
 
 void global_alpha(float alpha) {
-    nvgGlobalAlpha(vg, alpha);
+    // nvgGlobalAlpha(vg, alpha);
 }
 
 // Transforms
 void reset_transform() {
-    nvgResetTransform(vg);
+    painter->resetTransform();
 }
 
 void transform(float a, float b, float c, float d, float e, float f) {
-    nvgTransform(vg, a, b, c, d, e, f);
+    painter->setTransform(QTransform(a, b, c, d, e, f));
 }
 
 void translate(float x, float y) {
-    nvgTranslate(vg, x, y);
+    painter->translate(x, y);
 }
 
 void rotate(float angle) {
-    nvgRotate(vg, angle);
+    painter->rotate(angle);
 }
 
 void skew_x(float angle) {
-    nvgSkewX(vg, angle);
+    // nvgSkewX(vg, angle);
 }
 
 void skew_y(float angle) {
-    nvgSkewY(vg, angle);
+    // nvgSkewY(vg, angle);
 }
 
 void scale(float x, float y) {
-    nvgScale(vg, x, y);
+    painter->scale(x, y);
     view.width  = view.width  / x;
     view.height = view.height / y;
 }
 
 void to_global_position(float* gx, float* gy, float x, float y) {
     float mat[6];
-    nvgCurrentTransform(vg, mat);
-    nvgTransformPoint(gx, gy, mat, x, y);
+    // nvgCurrentTransform(vg, mat);
+    // nvgTransformPoint(gx, gy, mat, x, y);
 }
 
 void from_global_position(float* x, float* y, float gx, float gy) {
     float mat[6], inv_mat[6];
-    nvgCurrentTransform(vg, mat);
-    nvgTransformInverse(inv_mat, mat);
-    nvgTransformPoint(x, y, inv_mat, gx, gy);
+    // nvgCurrentTransform(vg, mat);
+    // nvgTransformInverse(inv_mat, mat);
+    // nvgTransformPoint(x, y, inv_mat, gx, gy);
 }
 
 void current_transform(float* xform) {
-    nvgCurrentTransform(vg, xform);
+    // nvgCurrentTransform(vg, xform);
 }
 
 // Images
@@ -514,159 +517,166 @@ void current_transform(float* xform) {
 
 // Paints
 Paint linear_gradient(float sx, float sy, float ex, float ey, Color icol, Color ocol) {
-    auto nvg_icol = *(NVGcolor*)&icol;
-    auto nvg_ocol = *(NVGcolor*)&ocol;
-    auto nvg_paint = nvgLinearGradient(vg, sx, sy, ex, ey, nvg_icol, nvg_ocol);
-    return *(Paint*)&nvg_paint;
+    // auto nvg_icol = *(NVGcolor*)&icol;
+    // auto nvg_ocol = *(NVGcolor*)&ocol;
+    // auto nvg_paint = nvgLinearGradient(vg, sx, sy, ex, ey, nvg_icol, nvg_ocol);
+    // return *(Paint*)&nvg_paint;
+    return Paint();
 }
 
 Paint box_gradient(float x, float y, float w, float h, float r, float f, Color icol, Color ocol) {
-    auto nvg_icol = *(NVGcolor*)&icol;
-    auto nvg_ocol = *(NVGcolor*)&ocol;
-    auto nvg_paint = nvgBoxGradient(vg, x, y, w, h, r, f, nvg_icol, nvg_ocol);
-    return *(Paint*)&nvg_paint;
+    // auto nvg_icol = *(NVGcolor*)&icol;
+    // auto nvg_ocol = *(NVGcolor*)&ocol;
+    // auto nvg_paint = nvgBoxGradient(vg, x, y, w, h, r, f, nvg_icol, nvg_ocol);
+    // return *(Paint*)&nvg_paint;
+    return Paint();
 }
 
 Paint radial_gradient(float cx, float cy, float inr, float outr, Color icol, Color ocol) {
-    auto nvg_icol = *(NVGcolor*)&icol;
-    auto nvg_ocol = *(NVGcolor*)&ocol;
-    auto nvg_paint = nvgRadialGradient(vg, cx, cy, inr, outr, nvg_icol, nvg_ocol);
-    return *(Paint*)&nvg_paint;
+    // auto nvg_icol = *(NVGcolor*)&icol;
+    // auto nvg_ocol = *(NVGcolor*)&ocol;
+    // auto nvg_paint = nvgRadialGradient(vg, cx, cy, inr, outr, nvg_icol, nvg_ocol);
+    // return *(Paint*)&nvg_paint;
+    return Paint();
 }
 
 Paint image_pattern(float ox, float oy, float ex, float ey, float angle, int image, float alpha) {
-    auto nvg_paint = nvgImagePattern(vg, ox, oy, ex, ey, angle, image, alpha);
-    return *(Paint*)&nvg_paint;
+    // auto nvg_paint = nvgImagePattern(vg, ox, oy, ex, ey, angle, image, alpha);
+    // return *(Paint*)&nvg_paint;
+    return Paint();
 }
 
 // Clipping
 void clip(float x, float y, float width, float height) {
-    nvgIntersectScissor(vg, x, y, width, height);
+    // nvgIntersectScissor(vg, x, y, width, height);
 }
 
-static NVGscissor* get_scissor();
+// static NVGscissor* get_scissor();
 void get_clip_dimensions(float* width, float* height) {
-    auto scissor = get_scissor();
-    *width  = scissor->extent[0] * 2.0;
-    *height = scissor->extent[1] * 2.0;
+    // auto scissor = get_scissor();
+    // *width  = scissor->extent[0] * 2.0;
+    // *height = scissor->extent[1] * 2.0;
 }
 
 // Paths
 void begin_path() {
-    nvgBeginPath(vg);
+    painter_path = QPainterPath();
 }
 
 void move_to(float x, float y) {
-    nvgMoveTo(vg, x, y);
+    painter_path.moveTo(x, y);
 }
 
 void line_to(float x, float y) {
-    nvgLineTo(vg, x, y);
+    painter_path.lineTo(x, y);
 }
 
 void bezier_to(float c1x, float c1y, float c2x, float c2y, float x, float y) {
-    nvgBezierTo(vg, c1x, c1y, c2x, c2y, x, y);
+    // nvgBezierTo(vg, c1x, c1y, c2x, c2y, x, y);
 }
 
 void quad_to(float cx, float cy, float x, float y) {
-    nvgQuadTo(vg, cx, cy, x, y);
+    painter_path.quadTo(cx, cy, x, y);
 }
 
 void arc_to(float x1, float y1, float x2, float y2, float radius) {
-    nvgArcTo(vg, x1, y1, x2, y2, radius);
+    // nvgArcTo(vg, x1, y1, x2, y2, radius);
 }
 
 void close_path() {
-    nvgClosePath(vg);
+    painter_path.closeSubpath();
 }
 
 void path_winding(int dir) {
-    nvgPathWinding(vg, dir);
+    // nvgPathWinding(vg, dir);
 }
 
 void arc(float cx, float cy, float r, float a0, float a1, int dir) {
-    nvgArc(vg, cx, cy, r, a0, a1, dir);
+    // nvgArc(vg, cx, cy, r, a0, a1, dir);
 }
 
 void rect(float x, float y, float w, float h) {
-    nvgRect(vg, x, y, w, h);
+    painter_path.addRect(x, y, w, h);
 }
 
 void rounded_rect(float x, float y, float w, float h, float r) {
-    nvgRoundedRect(vg, x, y, w, h, r);
+    painter_path.addRoundedRect(x, y, w, h, r, r);
 }
 
 void rounded_rect_varying(float x, float y, float w, float h, float radTopLeft, float radTopRight, float radBottomRight, float radBottomLeft) {
-    nvgRoundedRectVarying(vg, x, y, w, h, radTopLeft, radTopRight, radBottomRight, radBottomLeft);
+    // nvgRoundedRectVarying(vg, x, y, w, h, radTopLeft, radTopRight, radBottomRight, radBottomLeft);
 }
 
 void ellipse(float cx, float cy, float rx, float ry) {
-    nvgEllipse(vg, cx, cy, rx, ry);
+    painter_path.addEllipse(QPointF(cx, cy), rx, ry);
 }
 
 void circle(float cx, float cy, float r) {
-    nvgCircle(vg, cx, cy, r);
+    painter_path.addEllipse(QPointF(cx, cy), r, r);
 }
 
 void fill() {
-    nvgFill(vg);
+    painter->fillPath(painter_path, painter->brush());
 }
 
 void stroke() {
-    nvgStroke(vg);
+    painter->strokePath(painter_path, painter->pen());
 }
 
 // Text
 int create_font(const char* name, const char* filename) {
-    return nvgCreateFont(vg, name, filename);
+    // return nvgCreateFont(vg, name, filename);
 }
 
 void font_size(float size) {
-    nvgFontSize(vg, size);
+    // nvgFontSize(vg, size);
 }
 
 void font_blur(float blur) {
-    nvgFontBlur(vg, blur);
+    // nvgFontBlur(vg, blur);
 }
 
 void text_letter_spacing(float spacing) {
-    nvgTextLetterSpacing(vg, spacing);
+    // nvgTextLetterSpacing(vg, spacing);
 }
 
 void text_line_height(float lineHeight) {
-    nvgTextLineHeight(vg, lineHeight);
+    // nvgTextLineHeight(vg, lineHeight);
 }
 
 void text_align(int align) {
-    nvgTextAlign(vg, align);
+    // nvgTextAlign(vg, align);
 }
 
 void font_face(const char* font) {
-    nvgFontFace(vg, font);
+    // nvgFontFace(vg, font);
 }
 
 float text(float x, float y, const char* string, const char* end) {
-    return nvgText(vg, x, y, string, end);
+    // return nvgText(vg, x, y, string, end);
+    return 10.0f;
 }
 
 void text_box(float x, float y, float breakRowWidth, const char* string, const char* end) {
-    nvgTextBox(vg, x, y, breakRowWidth, string, end);
+    // nvgTextBox(vg, x, y, breakRowWidth, string, end);
 }
 
 float text_bounds(float x, float y, const char* string, const char* end, float* bounds) {
-    return nvgTextBounds(vg, x, y, string, end, bounds);
+    // return nvgTextBounds(vg, x, y, string, end, bounds);
+    return 10.0f;
 }
 
 void text_box_bounds(float x, float y, float breakRowWidth, const char* string, const char* end, float* bounds) {
-    nvgTextBoxBounds(vg, x, y, breakRowWidth, string, end, bounds);
+    // nvgTextBoxBounds(vg, x, y, breakRowWidth, string, end, bounds);
 }
 
 int text_glyph_positions(float x, float y, const char* string, const char* end, GlyphPosition* positions, int maxPositions) {
-    return nvgTextGlyphPositions(vg, x, y, string, end, (NVGglyphPosition*)positions, maxPositions);
+    // return nvgTextGlyphPositions(vg, x, y, string, end, (NVGglyphPosition*)positions, maxPositions);
+    return 0;
 }
 
 void text_metrics(float* ascender, float* descender, float* lineh) {
-    nvgTextMetrics(vg, ascender, descender, lineh);
+    // nvgTextMetrics(vg, ascender, descender, lineh);
 }
 
 // int text_break_lines(const char* string, const char* end, float breakRowWidth, NVGtextRow* rows, int maxRows);
@@ -674,96 +684,99 @@ void text_metrics(float* ascender, float* descender, float* lineh) {
 // Mouse state
 #define NVG_MAX_STATES 32
 
-struct NVGstate {
-    NVGcompositeOperationState compositeOperation;
-    int shapeAntiAlias;
-    NVGpaint fill;
-    NVGpaint stroke;
-    float strokeWidth;
-    float miterLimit;
-    int lineJoin;
-    int lineCap;
-    float alpha;
-    float xform[6];
-    NVGscissor scissor;
-    float fontSize;
-    float letterSpacing;
-    float lineHeight;
-    float fontBlur;
-    int textAlign;
-    int fontId;
-};
+// struct NVGstate {
+//     NVGcompositeOperationState compositeOperation;
+//     int shapeAntiAlias;
+//     NVGpaint fill;
+//     NVGpaint stroke;
+//     float strokeWidth;
+//     float miterLimit;
+//     int lineJoin;
+//     int lineCap;
+//     float alpha;
+//     float xform[6];
+//     NVGscissor scissor;
+//     float fontSize;
+//     float letterSpacing;
+//     float lineHeight;
+//     float fontBlur;
+//     int textAlign;
+//     int fontId;
+// };
 
-struct NVGcontext_ {
-    NVGparams params;
-    float* commands;
-    int ccommands;
-    int ncommands;
-    float commandx, commandy;
-    NVGstate states[NVG_MAX_STATES];
-    int nstates;
-};
+// struct NVGcontext_ {
+//     NVGparams params;
+//     float* commands;
+//     int ccommands;
+//     int ncommands;
+//     float commandx, commandy;
+//     NVGstate states[NVG_MAX_STATES];
+//     int nstates;
+// };
 
-static NVGscissor* get_scissor() {
-    auto vg_ = (NVGcontext_*)vg;
-    return &vg_->states[vg_->nstates - 1].scissor;
-}
+// static NVGscissor* get_scissor() {
+//     auto vg_ = (NVGcontext_*)vg;
+//     return &vg_->states[vg_->nstates - 1].scissor;
+// }
 
-static bool is_point_inside_rect(float* xform, float* extent, float x, float y) {
-    float inv_xform[6];
-    nvgTransformInverse(inv_xform, xform);
+// static bool is_point_inside_rect(float* xform, float* extent, float x, float y) {
+//     float inv_xform[6];
+//     nvgTransformInverse(inv_xform, xform);
 
-    float x2, y2;
-    nvgTransformPoint(&x2, &y2, inv_xform, x, y);
+//     float x2, y2;
+//     nvgTransformPoint(&x2, &y2, inv_xform, x, y);
 
-    return (
-        (-extent[0] <= x2 && x2 < extent[0]) &&
-        (-extent[1] <= y2 && y2 < extent[1])
-    );
-}
+//     return (
+//         (-extent[0] <= x2 && x2 < extent[0]) &&
+//         (-extent[1] <= y2 && y2 < extent[1])
+//     );
+// }
 
-static bool mouse_inside(float x, float y, float width, float height) {
-    float xform[6], extent[2];
-    nvgCurrentTransform(vg, xform);
+// static bool mouse_inside(float x, float y, float width, float height) {
+//     float xform[6], extent[2];
+//     nvgCurrentTransform(vg, xform);
     
-    extent[0] = width / 2;
-    extent[1] = height / 2;
+//     extent[0] = width / 2;
+//     extent[1] = height / 2;
     
-    nvgTransformPoint(&x, &y, xform, x + extent[0], y + extent[1]);
-    xform[4] = x;
-    xform[5] = y;
+//     nvgTransformPoint(&x, &y, xform, x + extent[0], y + extent[1]);
+//     xform[4] = x;
+//     xform[5] = y;
     
-    if (!is_point_inside_rect(xform, extent, mouse_state.x, mouse_state.y)) {
-        return false;
-    }
+//     if (!is_point_inside_rect(xform, extent, mouse_state.x, mouse_state.y)) {
+//         return false;
+//     }
     
-    auto scissor = get_scissor();
-    if (scissor->extent[0] < 0) {
-        return true;
-    }
+//     auto scissor = get_scissor();
+//     if (scissor->extent[0] < 0) {
+//         return true;
+//     }
 
-    return is_point_inside_rect(scissor->xform, scissor->extent, mouse_state.x, mouse_state.y);
-}
+//     return is_point_inside_rect(scissor->xform, scissor->extent, mouse_state.x, mouse_state.y);
+// }
 
 bool mouse_hit(float x, float y, float width, float height) {
-    return (
-        !mouse_state.accepted && mouse_state.pressed &&
-        mouse_inside(x, y, width, height)
-    );
+    // return (
+    //     !mouse_state.accepted && mouse_state.pressed &&
+    //     mouse_inside(x, y, width, height)
+    // );
+    return false;
 }
 
 bool mouse_hit_secondary(float x, float y, float width, float height) {
-    return (
-        !mouse_state.accepted && mouse_state.pressed_secondary &&
-        mouse_inside(x, y, width, height)
-    );
+    // return (
+    //     !mouse_state.accepted && mouse_state.pressed_secondary &&
+    //     mouse_inside(x, y, width, height)
+    // );
+    return false;
 }
 
 bool mouse_over(float x, float y, float width, float height) {
-    return (
-        !mouse_state.accepted && !mouse_state.pressed &&
-        mouse_inside(x, y, width, height)
-    );
+    // return (
+    //     !mouse_state.accepted && !mouse_state.pressed &&
+    //     mouse_inside(x, y, width, height)
+    // );
+    return false;
 }
 
 void mouse_hit_accept() {
@@ -771,23 +784,23 @@ void mouse_hit_accept() {
 }
 
 void mouse_position(float* x, float* y) {
-    float mat[6], inv_mat[6];
-    nvgCurrentTransform(vg, mat);
-    nvgTransformInverse(inv_mat, mat);
-    nvgTransformPoint(x, y, inv_mat, mouse_state.x, mouse_state.y);
+    // float mat[6], inv_mat[6];
+    // nvgCurrentTransform(vg, mat);
+    // nvgTransformInverse(inv_mat, mat);
+    // nvgTransformPoint(x, y, inv_mat, mouse_state.x, mouse_state.y);
 }
 
 void mouse_movement(float* x, float* y, float* dx, float* dy) {
-    float mat[6], inv_mat[6];
-    nvgCurrentTransform(vg, mat);
-    nvgTransformInverse(inv_mat, mat);
+    // float mat[6], inv_mat[6];
+    // nvgCurrentTransform(vg, mat);
+    // nvgTransformInverse(inv_mat, mat);
     
-    float ix, iy;
-    nvgTransformPoint(x, y, inv_mat, mouse_state.x, mouse_state.y);
-    nvgTransformPoint(&ix, &iy, inv_mat, mouse_state.initial_x, mouse_state.initial_y);
+    // float ix, iy;
+    // nvgTransformPoint(x, y, inv_mat, mouse_state.x, mouse_state.y);
+    // nvgTransformPoint(&ix, &iy, inv_mat, mouse_state.initial_x, mouse_state.initial_y);
     
-    *dx = *x - ix;
-    *dy = *y - iy;
+    // *dx = *x - ix;
+    // *dy = *y - iy;
 }
 
 // Focus state

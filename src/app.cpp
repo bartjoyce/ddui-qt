@@ -8,42 +8,36 @@
 
 #include "app.hpp"
 #include "core.hpp"
-#include "glfw.hpp"
+#include <QtGui>
+#include "MainWindow.hpp"
 
 namespace ddui {
 
-static GLFWwindow* window;
+static QGuiApplication* app;
+static MainWindow* window;
 
-bool app_init(int window_width, int window_height, const char* title, std::function<void()> update_proc) {
-    if (!ddui::init_glfw()) {
-        printf("Failed to init GLFW.\n");
-        return false;
-    }
-    
-    window = glfwCreateWindow(window_width, window_height, title, NULL, NULL);
-    if (!window) {
-        glfwTerminate();
-        return false;
-    }
-    
-    ddui::init_window(window, update_proc);
-    if (!ddui::init()) {
-        printf("Could not init ddui.\n");
-        return false;
-    }
-
+bool app_init(
+    int argc, const char** argv,
+    int window_width, int window_height,
+    const char* title,
+    std::function<void()> update_proc
+) {
+    app = new QGuiApplication(argc, const_cast<char**>(argv));
+    window = new MainWindow(window_width, window_height, title, std::move(update_proc));
     return true;
 }
 
 void app_run() {
-    while (!glfwWindowShouldClose(window)) {
-        ddui::update_window(window);
-        if (ddui::animation::is_animating()) {
-            glfwPollEvents();
-        } else {
-            glfwWaitEvents();
-        }
-    }
+    window->show();
+    app->exec();
+    // while (!glfwWindowShouldClose(window)) {
+    //     ddui::update_window(window);
+    //     if (ddui::animation::is_animating()) {
+    //         glfwPollEvents();
+    //     } else {
+    //         glfwWaitEvents();
+    //     }
+    // }
 }
 
 }

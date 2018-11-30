@@ -10,7 +10,6 @@
 #include <ddui/core>
 #include <ddui/util/entypo>
 #include <ddui/views/ScrollArea>
-#include <nanovg.h>
 
 namespace ContextMenu {
 
