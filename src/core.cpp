@@ -186,6 +186,8 @@ void update(void* _painter, float width, float height, std::function<void()> upd
 
     // Setup painter
     painter = (QPainter*)_painter;
+    painter->setPen(QPen(Qt::black, 1.0));
+    painter->setBrush(Qt::black);
 
     repaint_mutex.lock();
     is_painting = true;
@@ -193,7 +195,7 @@ void update(void* _painter, float width, float height, std::function<void()> upd
     repaint_mutex.unlock();
 
     while (true) {
-        painter->fillRect(0, 0, width, height, QColor::fromRgbF(0.949f, 0.949f, 0.949f, 1.0f));
+        painter->fillRect(0, 0, width, height, QColor::fromRgbF(0.2f, 0.2f, 0.2f, 1.0f));
 
         update_pre(width, height);
         update_proc();
@@ -548,7 +550,13 @@ Paint image_pattern(float ox, float oy, float ex, float ey, float angle, int ima
 
 // Clipping
 void clip(float x, float y, float width, float height) {
-    // nvgIntersectScissor(vg, x, y, width, height);
+    auto rect = QRect(x, y, width, height);
+    auto region = painter->clipRegion();
+    if (region.isEmpty()) {
+        painter->setClipRect(rect);
+    } else {
+        painter->setClipRegion(region.intersected(rect));
+    }
 }
 
 // static NVGscissor* get_scissor();
@@ -617,10 +625,12 @@ void circle(float cx, float cy, float r) {
 
 void fill() {
     painter->fillPath(painter_path, painter->brush());
+    painter_path = QPainterPath();
 }
 
 void stroke() {
     painter->strokePath(painter_path, painter->pen());
+    painter_path = QPainterPath();
 }
 
 // Text
